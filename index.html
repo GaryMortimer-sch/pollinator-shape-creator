@@ -46,20 +46,27 @@
         <div id="controls" class="grid grid-cols-2 gap-2 mb-3">
             <button id="add-site" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
                 <span class="font-semibold block">Add Pollinator Site</span>
-                <span class="text-xs text-gray-500">Draw a 1.5km hexagon.</span>
             </button>
             <button id="add-corridor" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
                 <span class="font-semibold block">Add Corridor</span>
-                <span class="text-xs text-gray-500">Draw a 4km wide line.</span>
             </button>
             <button id="modify" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
                 <span class="font-semibold block">Modify Feature</span>
-                <span class="text-xs text-gray-500">Move or reshape.</span>
             </button>
              <button id="delete" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
                 <span class="font-semibold block">Delete Feature</span>
-                <span class="text-xs text-gray-500">Click to remove.</span>
             </button>
+        </div>
+        
+        <!-- Instructions Box -->
+        <div class="bg-gray-100 border-l-4 border-gray-400 p-3 rounded-r-md mb-4 text-sm text-gray-700 space-y-2">
+            <h3 class="font-bold">Instructions:</h3>
+            <ol class="list-decimal list-inside space-y-1">
+                <li>Find places you would like to add to the map.</li>
+                <li>When finished, click 'Export as KML'.</li>
+                <li>Save the file on your device.</li>
+                <li>Email the saved file to your teacher.</li>
+            </ol>
         </div>
 
         <div class="bg-blue-50 border-l-4 border-blue-400 p-2 rounded-r-md mb-4">
@@ -177,7 +184,9 @@
         }
 
         function createHexagon(center) {
-            const radius = 1500 / Math.sqrt(3);
+            // A pointy-topped hexagon's width is sqrt(3) * radius.
+            // We want width = 1000m. So radius = 1000 / Math.sqrt(3).
+            const radius = 1000 / Math.sqrt(3);
             const hexagon = new ol.geom.Polygon.fromCircle(new ol.geom.Circle(center, radius), 6, Math.PI / 6);
             return new ol.Feature(hexagon);
         }
@@ -189,12 +198,12 @@
             deactivateAllInteractions();
             document.getElementById('add-site').classList.add('active');
             map.getTargetElement().style.cursor = 'pointer';
-            helpText.textContent = 'Click on the map to add a 1.5km wide hexagon site.';
+            helpText.textContent = 'Click on the map to add a 1km wide hexagon site.';
 
             siteAddHandler = function(evt) {
                 const clickedCoord = evt.coordinate;
                 const existingHexagons = siteSource.getFeatures();
-                const distanceBetweenCenters = 1500;
+                const distanceBetweenCenters = 1000; // 1km
                 const coordToString = (coord) => `${Math.round(coord[0])},${Math.round(coord[1])}`;
 
                 if (existingHexagons.length === 0) {
@@ -359,3 +368,4 @@
 
 </body>
 </html>
+
