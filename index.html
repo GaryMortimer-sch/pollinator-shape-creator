@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pollinator Shape Creator</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css">
+    <script src="https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsts@2.11.0/dist/jsts.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #map {
+            background: #aadaff;
+        }
+        .ol-zoom, .ol-attribution {
+            display: none;
+        }
+        #controls button.active {
+            background-color: #3b82f6; /* blue-500 */
+            color: white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+    </style>
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <div id="map" class="w-full h-screen absolute top-0 left-0 z-0"></div>
+
+    <div id="ui-container" class="absolute top-4 left-4 bg-white/90 p-4 rounded-lg shadow-lg backdrop-blur-sm max-w-sm">
+        <div class="flex items-center border-b pb-3 mb-3">
+            <svg class="w-10 h-10 text-yellow-500 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+                <path d="M495.3 222.9l-112-192c-5.1-8.8-14.8-14.3-25.3-14.3H154c-10.5 0-20.2 5.5-25.3 14.3l-112 192c-5.1 8.8-5.1 19.6 0 28.4l112 192c5.1 8.8 14.8 14.3 25.3 14.3h176c10.5 0 20.2-5.5 25.3-14.3l112-192c5.1-8.8 5.1-19.6 0-28.4zM256 425.1L163.6 261.1l92.4-158.3 92.4 158.3L256 425.1z" fill="currentColor"/>
+            </svg>
+            <div>
+                <h1 class="text-xl font-bold text-gray-800">Pollinator Shape Creator</h1>
+                <p class="text-sm text-gray-600">Create sites, corridors, and export KML</p>
+            </div>
+        </div>
+
+        <div id="controls" class="grid grid-cols-2 gap-2 mb-3">
+            <button id="add-site" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
+                <span class="font-semibold block">Add Pollinator Site</span>
+                <span class="text-xs text-gray-500">Draw a 1.5km hexagon.</span>
+            </button>
+            <button id="add-corridor" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
+                <span class="font-semibold block">Add Corridor</span>
+                <span class="text-xs text-gray-500">Draw a 4km wide line.</span>
+            </button>
+            <button id="modify" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
+                <span class="font-semibold block">Modify Feature</span>
+                <span class="text-xs text-gray-500">Move or reshape.</span>
+            </button>
+             <button id="delete" class="w-full text-left p-2 rounded-md bg-white hover:bg-gray-50 transition-colors border">
+                <span class="font-semibold block">Delete Feature</span>
+                <span class="text-xs text-gray-500">Click to remove.</span>
+            </button>
+        </div>
+
+        <div class="bg-blue-50 border-l-4 border-blue-400 p-2 rounded-r-md mb-4">
+             <p id="help-text" class="text-sm text-blue-800">Select a tool to begin.</p>
+        </div>
+
+        <button id="export-kml" class="w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors shadow-md">
+            Export as KML
+        </button>
+    </div>
+
+    <!-- Message Modal -->
+    <div id="message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm text-center">
+            <p id="message-text" class="mb-4 text-gray-700">No features to export.</p>
+            <button id="close-modal" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">OK</button>
+        </div>
+    </div>
+
+
+    <script>
+        // --- UI Elements ---
+        const helpText = document.getElementById('help-text');
+        const messageModal = document.getElementById('message-modal');
+        const messageText = document.getElementById('message-text');
+        const closeModalButton = document.getElementById('close-modal');
+
+        // --- Utility Functions ---
+        const showMessage = (msg) => {
+            messageText.textContent = msg;
+            messageModal.classList.remove('hidden');
+        };
+
+        closeModalButton.addEventListener('click', () => {
+            messageModal.classList.add('hidden');
+        });
+
+        // JSTS parser for geometric operations
+        const jstsParser = new jsts.io.OL3Parser();
+        jstsParser.inject(ol.geom.Point, ol.geom.LineString, ol.geom.LinearRing, ol.geom.Polygon, ol.geom.MultiPoint, ol.geom.MultiLineString, ol.geom.MultiPolygon);
+
+        // --- MAP SETUP ---
+        // Centered on KwaZulu-Natal Midlands, South Africa
+        const initialCenter = ol.proj.fromLonLat([30.39, -29.53]);
+
+        const raster = new ol.layer.Tile({
+            source: new ol.source.OSM({
+                url: 'https://{a-c}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+            }),
+        });
+
+        const siteSource = new ol.source.Vector();
+        const corridorSource = new ol.source.Vector();
+        const allFeaturesCollection = new ol.Collection();
+
+        const allFeaturesSource = new ol.source.Vector({
+             features: allFeaturesCollection
+        });
+
+        const updateAllFeatures = () => {
+            allFeaturesCollection.clear();
+            allFeaturesCollection.extend(siteSource.getFeatures());
+            allFeaturesCollection.extend(corridorSource.getFeatures());
+        };
+
+        siteSource.on(['addfeature', 'removefeature'], updateAllFeatures);
+        corridorSource.on(['addfeature', 'removefeature'], updateAllFeatures);
+
+
+        // --- STYLING ---
+        const siteStyle = new ol.style.Style({
+            fill: new ol.style.Fill({ color: 'rgba(255, 165, 0, 0.6)' }),
+            stroke: new ol.style.Stroke({ color: '#c27d00', width: 2 })
+        });
+        const corridorStyle = new ol.style.Style({
+            fill: new ol.style.Fill({ color: 'rgba(124, 252, 0, 0.5)' }),
+            stroke: new ol.style.Stroke({ color: '#4b9b00', width: 1.5, lineDash: [5, 5] })
+        });
+        const deleteStyle = new ol.style.Style({
+            fill: new ol.style.Fill({color: 'rgba(255, 0, 0, 0.7)'}),
+            stroke: new ol.style.Stroke({color: 'red', width: 3})
+        });
+
+        const siteLayer = new ol.layer.Vector({
+            source: siteSource,
+            style: siteStyle,
+        });
+        const corridorLayer = new ol.layer.Vector({
+            source: corridorSource,
+            style: corridorStyle,
+        });
+
+        const map = new ol.Map({
+            layers: [raster, corridorLayer, siteLayer],
+            target: 'map',
+            view: new ol.View({
+                center: initialCenter,
+                zoom: 11,
+            }),
+            controls: [], // Remove default controls
+        });
+
+        // --- INTERACTIONS ---
+        let draw, modify, deleteInteraction, siteAddHandler;
+
+        function deactivateAllInteractions() {
+            if (draw) map.removeInteraction(draw);
+            if (modify) map.removeInteraction(modify);
+            if (deleteInteraction) map.removeInteraction(deleteInteraction);
+            if (siteAddHandler) map.un('singleclick', siteAddHandler);
+
+            document.querySelectorAll('#controls button').forEach(btn => btn.classList.remove('active'));
+            map.getTargetElement().style.cursor = 'grab';
+            helpText.textContent = 'Select a tool to begin.';
+        }
+
+        function createHexagon(center) {
+            const radius = 1500 / Math.sqrt(3);
+            const hexagon = new ol.geom.Polygon.fromCircle(new ol.geom.Circle(center, radius), 6, Math.PI / 6);
+            return new ol.Feature(hexagon);
+        }
+
+        // --- CONTROL BUTTONS ---
+
+        // Add Pollinator Site (Honeycomb Logic)
+        document.getElementById('add-site').addEventListener('click', () => {
+            deactivateAllInteractions();
+            document.getElementById('add-site').classList.add('active');
+            map.getTargetElement().style.cursor = 'pointer';
+            helpText.textContent = 'Click on the map to add a 1.5km wide hexagon site.';
+
+            siteAddHandler = function(evt) {
+                const clickedCoord = evt.coordinate;
+                const existingHexagons = siteSource.getFeatures();
+                const distanceBetweenCenters = 1500;
+                const coordToString = (coord) => `${Math.round(coord[0])},${Math.round(coord[1])}`;
+
+                if (existingHexagons.length === 0) {
+                    siteSource.addFeature(createHexagon(clickedCoord));
+                    return;
+                }
+
+                const occupiedCenters = new Set();
+                existingHexagons.forEach(hex => {
+                    const center = ol.extent.getCenter(hex.getGeometry().getExtent());
+                    occupiedCenters.add(coordToString(center));
+                });
+
+                const potentialCenters = new Map();
+                existingHexagons.forEach(hex => {
+                    const center = ol.extent.getCenter(hex.getGeometry().getExtent());
+                    for (let i = 0; i < 6; i++) {
+                        const angle = i * (Math.PI / 3);
+                        const potentialCenter = [
+                            center[0] + distanceBetweenCenters * Math.cos(angle),
+                            center[1] + distanceBetweenCenters * Math.sin(angle)
+                        ];
+                        const key = coordToString(potentialCenter);
+                        if (!occupiedCenters.has(key)) {
+                            potentialCenters.set(key, potentialCenter);
+                        }
+                    }
+                });
+
+                if (potentialCenters.size === 0) {
+                    siteSource.addFeature(createHexagon(clickedCoord));
+                    return;
+                }
+
+                let bestCenter = null;
+                let minSnapDistSq = Infinity;
+                potentialCenters.forEach(center => {
+                    const dx = center[0] - clickedCoord[0];
+                    const dy = center[1] - clickedCoord[1];
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq < minSnapDistSq) {
+                        minSnapDistSq = distSq;
+                        bestCenter = center;
+                    }
+                });
+
+                const snapThresholdSq = Math.pow(distanceBetweenCenters * 0.8, 2);
+                if (bestCenter && minSnapDistSq < snapThresholdSq) {
+                    siteSource.addFeature(createHexagon(bestCenter));
+                } else {
+                    siteSource.addFeature(createHexagon(clickedCoord));
+                }
+            };
+            map.on('singleclick', siteAddHandler);
+        });
+
+
+        // Add Corridor
+        document.getElementById('add-corridor').addEventListener('click', () => {
+            deactivateAllInteractions();
+            document.getElementById('add-corridor').classList.add('active');
+            map.getTargetElement().style.cursor = 'crosshair';
+            helpText.textContent = 'Click to draw points for a new corridor. Double-click to finish.';
+
+            draw = new ol.interaction.Draw({
+                source: new ol.source.Vector(), // Draw on a temporary source
+                type: 'LineString',
+            });
+            map.addInteraction(draw);
+
+            draw.on('drawend', (event) => {
+                const drawnLineFeature = event.feature;
+                const lineGeom = jstsParser.read(drawnLineFeature.getGeometry());
+                const bufferedGeom = lineGeom.buffer(2000); // 4km wide = 2km buffer
+
+                let unionGeom = bufferedGeom;
+                const featuresToRemove = [];
+
+                corridorSource.forEachFeature((existingFeature) => {
+                    const existingGeom = jstsParser.read(existingFeature.getGeometry());
+                    if (unionGeom.intersects(existingGeom)) {
+                        featuresToRemove.push(existingFeature);
+                        unionGeom = unionGeom.union(existingGeom);
+                    }
+                });
+
+                featuresToRemove.forEach(feature => corridorSource.removeFeature(feature));
+                
+                const mergedFeature = new ol.Feature({
+                    geometry: jstsParser.write(unionGeom)
+                });
+                corridorSource.addFeature(mergedFeature);
+            });
+        });
+
+        // Modify Feature
+        document.getElementById('modify').addEventListener('click', () => {
+            deactivateAllInteractions();
+            document.getElementById('modify').classList.add('active');
+            map.getTargetElement().style.cursor = 'move';
+            helpText.textContent = 'Click and drag a feature to move it, or drag its points to reshape it.';
+
+            modify = new ol.interaction.Modify({
+                source: allFeaturesSource
+            });
+            map.addInteraction(modify);
+        });
+        
+        // Delete Feature
+        document.getElementById('delete').addEventListener('click', () => {
+            deactivateAllInteractions();
+            document.getElementById('delete').classList.add('active');
+            map.getTargetElement().style.cursor = 'pointer';
+            helpText.textContent = 'Click on a site or corridor to delete it.';
+
+            deleteInteraction = new ol.interaction.Select({
+                condition: ol.events.condition.click,
+                layers: [siteLayer, corridorLayer],
+                style: deleteStyle
+            });
+            map.addInteraction(deleteInteraction);
+
+            deleteInteraction.on('select', (e) => {
+                const selectedFeature = e.selected[0];
+                if (selectedFeature) {
+                    if(siteSource.hasFeature(selectedFeature)){
+                        siteSource.removeFeature(selectedFeature);
+                    } else if(corridorSource.hasFeature(selectedFeature)){
+                        corridorSource.removeFeature(selectedFeature);
+                    }
+                    deleteInteraction.getFeatures().clear();
+                }
+            });
+        });
+
+
+        // Export as KML
+        document.getElementById('export-kml').addEventListener('click', () => {
+            const format = new ol.format.KML();
+            const allFeatures = allFeaturesSource.getFeatures();
+            
+            if (allFeatures.length === 0) {
+                showMessage('There are no shapes on the map to export.');
+                return;
+            }
+
+            const kml = format.writeFeatures(allFeatures, {
+                dataProjection: 'EPSG:4326',
+                featureProjection: 'EPSG:3857'
+            });
+
+            const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'pollinator_shapes.kml';
+            link.click();
+        });
+
+        // Initial state
+        deactivateAllInteractions();
+    </script>
+
+</body>
+</html>
